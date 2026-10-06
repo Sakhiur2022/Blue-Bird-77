@@ -1,0 +1,513 @@
+project:
+  name: "BlueBird-77"
+  purpose: "Hybrid CNN-QNN classifier with correlation regularization"
+  reproduction_level: "Methodology-faithful, not exact numerical reproduction"
+
+evidence_policy:
+  explicit_from_paper: "Must reproduce as stated"
+  derived_from_paper: "May be calculated from explicit details"
+  implementation_choice: "Chosen by us because the paper does not specify it"
+  not_reported: "Known to be unspecified; do not silently invent"
+
+paper:
+  venue: "CVPR"
+  appendix: false
+  methodology: "Correlation-regularized hybrid CNN-QNN classifier"
+
+# 1. CORE MODEL
+
+model:
+  architecture: "Hybrid CNN-QNN"
+
+  pipeline:
+    - "Input image/spectrogram"
+    - "CNN feature extractor"
+    - "8-dimensional latent feature vector"
+    - "Correlation regularization on latent features"
+    - "Quantum feature encoding"
+    - "Variational quantum circuit"
+    - "Z1 expectation measurement"
+    - "Binary probability"
+    - "Classification loss"
+    - "Joint optimization"
+
+  latent_dimension: 8
+  qubits: 8
+
+  relationship:
+    feature_dimension_equals_qubits: true
+
+# 2. CLASSICAL FEATURE EXTRACTORS
+
+classical_backbones:
+  shallow_cnn:
+    paper_spec:
+      architecture:
+        - "single convolutional layer"
+        - "ReLU"
+        - "adaptive average pooling"
+      output_features: 8
+
+    unspecified:
+      convolution_channels: "NOT_REPORTED"
+      kernel_size: "NOT_REPORTED"
+      stride: "NOT_REPORTED"
+      padding: "NOT_REPORTED"
+
+    our_implementation_choices:
+      note: "Choose reasonable values for educational reproduction"
+
+  resnet18:
+    paper_spec:
+      architecture: "ResNet-18"
+      output_features: 8
+
+    unspecified:
+      exact_8_feature_projection: "NOT_REPORTED"
+
+    our_implementation_choices:
+      note: "Use ResNet-18 with a final projection layer producing 8 features"
+
+# 3. QUANTUM FEATURE MAP
+
+quantum:
+  feature_map:
+    name: "ZFeatureMap"
+    dimension: 8
+
+    initial_state:
+      - "Apply H to every qubit"
+      - "Prepare |+> states"
+
+    encoding:
+      operation: "Rz(2*x_j)"
+      applied_to: "qubit j"
+      j_range: "1..8"
+
+    mathematical_form:
+      U_x: "Product_j Rz(2*x_j)"
+
+  # 4. VARIATIONAL QUANTUM CIRCUIT
+
+  vqc:
+    trainable_parameters:
+      alpha:
+        count: 8
+        distribution_in_analysis: "N(0,1)"
+
+      beta:
+        count: 7
+        distribution_in_analysis: "N(0,1)"
+
+      total_parameters: 15
+
+    W1:
+      operation: "Ry(alpha_j)"
+      qubits: "1..8"
+
+    W2:
+      operation:
+        - "Ry(beta_k)"
+        - "CNOT(k+1 -> k)"
+      k_range: "1..7"
+      entanglement: "reverse chain"
+
+    complete_unitary:
+      expression: "W(theta) = W2(beta) W1(alpha)"
+
+    measurement:
+      observable: "Z1"
+      measured_qubit: 1
+      operator: "Z tensor I^(d-1)"
+
+# 5. QNN OUTPUT
+
+qnn_output:
+  state:
+    expression: "|psi(theta)> = W(theta) U(x) H |0>"
+
+  expectation:
+    expression: "f_theta(x) = <psi|Z1|psi>"
+
+  output_range:
+    minimum: -1
+    maximum: 1
+
+  binary_probability:
+    expression: "p = (1 + f_theta(x)) / 2"
+
+# 6. CORRELATION REGULARIZATION
+
+correlation_regularization:
+  applied_to: "CNN latent features"
+  NOT_applied_to: "QNN output"
+
+  input:
+    shape: "[batch_size, 8]"
+
+  normalization:
+    mean: 0
+    standard_deviation: 1
+    axis: "batch dimension"
+
+  empirical_correlation_matrix:
+    expression: "C = X_norm^T X_norm / (B - 1)"
+    shape: "[8, 8]"
+
+  target_matrix:
+    diagonal: 1
+    off_diagonal: "Cor"
+
+    expression: |
+      T_ij =
+        1      if i = j
+        Cor    if i != j
+
+  correlation_loss:
+    expression: |
+      L_correlation =
+        (1 / d^2) * sum_ij (C_ij - T_ij)^2
+
+    d: 8
+
+# 7. CLASSIFICATION LOSS
+
+classification:
+  task: "Binary classification"
+
+  loss:
+    name: "Binary cross entropy"
+    expression: |
+      L_classification =
+        -(1/B) * sum_i [
+          y_i log(p_i) +
+          (1-y_i) log(1-p_i)
+        ]
+
+# 8. TOTAL LOSS
+
+loss:
+  total:
+    expression: "L = L_classification + L_correlation"
+
+  correlation_weight:
+    value: 1.0
+    status: "Derived from paper's explicitly stated total-loss equation"
+    note: "No separate lambda coefficient is specified in the supplied methodology"
+
+# 9. REAL-DATA EXPERIMENTS
+
+datasets:
+  fashion_mnist:
+    task: "shirt vs coat"
+    input_shape: [1, 28, 28]
+    samples_per_class: 7000
+    total_samples: 14000
+    split:
+      train: 0.64
+      validation: 0.16
+      test: 0.20
+
+  cifar10:
+    task: "truck vs automobile"
+    input_shape: [3, 32, 32]
+    samples_per_class: 6000
+    total_samples: 12000
+    split:
+      train: 0.64
+      validation: 0.16
+      test: 0.20
+
+  micro_doppler:
+    task: "robot vs non-robot"
+    input_shape: [1, 1500, 26]
+    samples_per_class: 8459
+    total_samples: 16918
+
+    split:
+      train: 0.64
+      validation: 0.16
+      test: 0.20
+
+    rounding:
+      status: "NOT_REPORTED"
+
+    acquisition:
+      radar: "FMCW radar"
+      representation: "STFT spectrogram"
+
+    robot:
+      target: "Unitree GO2 robotic dog"
+
+    non_robot_targets:
+      - "dog"
+      - "walking person"
+      - "person riding bicycle"
+      - "person riding electric scooter"
+
+# 10. CORRELATION SWEEP
+
+correlation_experiments:
+  paper_values_reported_in_analysis:
+    - 0.0
+    - 0.2
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.8
+    - 0.99
+
+  paper_values_appearing_in_tables:
+    - 0.0
+    - 0.2
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.8
+    - 1.0
+
+  discrepancy:
+    status: "EXPLICIT_INCONSISTENCY"
+    description: "Methodology/analysis mentions 0.99 while experimental tables use 1.0"
+
+  learning_experiment:
+    values:
+      - 0.0
+      - 0.2
+      - 0.4
+      - 0.5
+      - 0.6
+      - 0.8
+      - 1.0
+
+    note: "Use table values for the initial reproduction; later test 0.99 separately if desired"
+
+# 11. BASELINES
+
+baselines:
+  qnn_without_correlation:
+    purpose: "Test whether correlation regularization contributes"
+    loss:
+      expression: "L_classification"
+
+  mlp:
+    purpose: "Compare QNN classifier with classical classifier"
+
+    architecture:
+      - "ReLU"
+      - "fully connected output layer"
+
+    feature_extractor:
+      same_as_hybrid_model: true
+
+# 12. TRAINING
+
+training:
+  optimization:
+    optimizer: "Adam"
+    joint_training:
+      classical_feature_extractor: true
+      quantum_classifier: true
+
+  hyperparameters:
+    learning_rate:
+      value: "OUR_CHOICE"
+      status: "NOT_REPORTED_BY_PAPER"
+
+    batch_size:
+      value: "OUR_CHOICE"
+      status: "NOT_REPORTED_BY_PAPER"
+
+    epochs:
+      value: "OUR_CHOICE"
+      status: "NOT_REPORTED_BY_PAPER"
+
+    weight_decay:
+      value: "OUR_CHOICE"
+      status: "NOT_REPORTED_BY_PAPER"
+
+    scheduler:
+      value: "OUR_CHOICE"
+      status: "NOT_REPORTED_BY_PAPER"
+
+  principle:
+    - "Choose simple reasonable defaults"
+    - "Keep them fixed across correlation settings"
+    - "Do not tune separately for each Cor value"
+    - "Document every chosen hyperparameter"
+
+# 13. VALIDATION / EVALUATION
+
+evaluation:
+  real_data:
+    method: "5-fold cross-validation"
+
+    reported:
+      metric: "accuracy"
+      aggregation: "mean ± standard deviation"
+
+  synthetic_analysis:
+    repetitions: 5
+    aggregation: "mean accuracy"
+
+# 14. SYNTHETIC ANALYSIS FROM SECTION 5
+
+synthetic_analysis:
+  purpose:
+    - "Study relationship between feature correlation and QNN classification"
+
+  dimensions:
+    - 8
+    - 32
+    - 100
+    - 1000
+
+  correlation_values:
+    - 0.0
+    - 0.2
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.8
+    - 0.99
+
+  class_means:
+    mu:
+      - 0.6
+      - 0.8
+      - 1.0
+      - 1.2
+      - 1.4
+
+  distributions:
+    class_1: "N(0, T)"
+    class_2: "N(mu, T)"
+
+  samples:
+    total_per_setting: 10000
+    class_balance: "equal"
+
+  split:
+    train: 0.80
+    test: 0.20
+
+  qnn_parameters:
+    alpha: "N(0,1)"
+    beta: "N(0,1)"
+
+  scoring:
+    qnn_output: "1-dimensional score"
+
+    threshold:
+      method: "Exhaustive search over sorted training scores"
+      applied_to: "test scores"
+
+  repetitions:
+    count: 5
+    random_seeds:
+      status: "NOT_REPORTED"
+
+  important_finding:
+    observed_best_correlation: 0.5
+    interpretation:
+      - "Low-to-moderate correlation appears beneficial"
+      - "Excessive correlation may reduce feature diversity"
+      - "Authors relate this to utilization of circuit entanglement"
+
+  caution:
+    statement: "Cor=0.5 is an empirical result of this experimental setup, not a universal optimum"
+
+# 15. QUANTUM EXECUTION
+
+quantum_execution:
+  backend:
+    type: "Qiskit simulator"
+
+  exact_backend:
+    status: "NOT_REPORTED"
+
+  qiskit_version:
+    status: "NOT_REPORTED"
+
+  interface:
+    name: "TorchConnector"
+
+# 16. PREPROCESSING
+
+preprocessing:
+  normalization:
+    exact_dataset_normalization:
+      status: "NOT_REPORTED"
+
+  augmentation:
+    status: "NOT_REPORTED"
+
+  image_resize:
+    status: "NOT_REPORTED"
+
+  policy:
+    note: "Choose simple preprocessing for educational reproduction and keep it fixed across experiments"
+
+# 17. WHAT WE WILL IMPLEMENT FIRST
+
+first_implementation:
+  dataset: "Fashion-MNIST"
+  task: "shirt vs coat"
+
+  model:
+    backbone: "shallow CNN"
+    latent_features: 8
+    qubits: 8
+    qnn: true
+    correlation_regularization: true
+
+  experiment:
+    correlation_values:
+      - 0.0
+      - 0.5
+      - 1.0
+
+  purpose:
+    - "Verify the complete forward pass"
+    - "Inspect the 8 CNN features"
+    - "Inspect the correlation matrix"
+    - "Inspect the target correlation matrix"
+    - "Inspect QNN expectation values"
+    - "Verify binary probability conversion"
+    - "Verify both loss components"
+    - "Verify end-to-end backpropagation"
+
+  after_success:
+    - "Run complete Cor sweep"
+    - "Add no-correlation baseline"
+    - "Add ResNet-18"
+    - "Move to CIFAR-10"
+    - "Then reproduce synthetic analysis"
+    - "Then investigate extensions"
+
+# 18. REPRODUCTION STATUS
+
+status:
+  paper_methodology:
+    status: "SUFFICIENTLY_SPECIFIED_FOR_IMPLEMENTATION"
+
+  exact_numerical_reproduction:
+    status: "NOT_POSSIBLE_FROM_PAPER_ALONE"
+
+  reason:
+    - "Training hyperparameters not fully specified"
+    - "Shallow CNN architecture details not fully specified"
+    - "Exact ResNet-18 -> 8-feature projection not specified"
+    - "Preprocessing details not fully specified"
+    - "Random seeds not specified"
+    - "Exact simulator/backend/version not specified"
+
+  learning_reproduction:
+    status: "READY"
+
+  philosophy:
+    statement: >
+      Reproduce the paper's scientific methodology and mathematical structure
+      faithfully, while explicitly choosing unspecified engineering details.
+      Do not claim exact numerical reproduction unless the missing details are
+      later recovered from code or another authoritative source.
